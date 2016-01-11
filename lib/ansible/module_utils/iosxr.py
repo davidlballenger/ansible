@@ -23,9 +23,7 @@ NET_COMMON_ARGS = dict(
     host=dict(required=True),
     port=dict(default=22, type='int'),
     username=dict(required=True),
-    password=dict(no_log=True),
-    authorize=dict(default=False, type='bool'),
-    auth_pass=dict(no_log=True),
+    password=dict(no_log=True)
 )
 
 def to_list(val):
@@ -52,17 +50,13 @@ class Cli(object):
         self.shell = Shell()
         self.shell.open(host, port=port, username=username, password=password)
 
-    def authorize(self):
-        passwd = self.module.params['auth_pass']
-        self.send(Command('enable', prompt=NET_PASSWD_RE, response=passwd))
-
     def send(self, commands):
         return self.shell.send(commands)
 
-class IosModule(AnsibleModule):
+class IosxrModule(AnsibleModule):
 
     def __init__(self, *args, **kwargs):
-        super(IosModule, self).__init__(*args, **kwargs)
+        super(IosxrModule, self).__init__(*args, **kwargs)
         self.connection = None
         self._config = None
 
@@ -77,18 +71,16 @@ class IosModule(AnsibleModule):
             self.connection = Cli(self)
             self.connection.connect()
             self.execute('terminal length 0')
-
-            if self.params['authorize']:
-                self.connection.authorize()
-
         except Exception, exc:
             self.fail_json(msg=exc.message)
 
     def configure(self, commands):
         commands = to_list(commands)
         commands.insert(0, 'configure terminal')
+        commands.append('commit')
         responses = self.execute(commands)
         responses.pop(0)
+        responses.pop()
         return responses
 
     def execute(self, commands, **kwargs):
@@ -101,13 +93,10 @@ class IosModule(AnsibleModule):
         return parse(cfg, indent=1)
 
     def get_config(self):
-        cmd = 'show running-config'
-        if self.params['include_defaults']:
-            cmd += ' all'
-        return self.execute(cmd)[0]
+        return self.execute('show running-config')[0]
 
 def get_module(**kwargs):
-    """Return instance of IosModule
+    """Return instance of IosxrModule
     """
 
     argument_spec = NET_COMMON_ARGS.copy()
@@ -116,9 +105,8 @@ def get_module(**kwargs):
     kwargs['argument_spec'] = argument_spec
     kwargs['check_invalid_arguments'] = False
 
-    module = IosModule(**kwargs)
+    module = IosxrModule(**kwargs)
 
-    # HAS_PARAMIKO is set by module_utils/shell.py
     if not HAS_PARAMIKO:
         module.fail_json(msg='paramiko is required but does not appear to be installed')
 

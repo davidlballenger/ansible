@@ -17,15 +17,11 @@
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-NET_PASSWD_RE = re.compile(r"[\r\n]?password: $", re.I)
-
 NET_COMMON_ARGS = dict(
     host=dict(required=True),
     port=dict(default=22, type='int'),
     username=dict(required=True),
-    password=dict(no_log=True),
-    authorize=dict(default=False, type='bool'),
-    auth_pass=dict(no_log=True),
+    password=dict(no_log=True)
 )
 
 def to_list(val):
@@ -52,17 +48,14 @@ class Cli(object):
         self.shell = Shell()
         self.shell.open(host, port=port, username=username, password=password)
 
-    def authorize(self):
-        passwd = self.module.params['auth_pass']
-        self.send(Command('enable', prompt=NET_PASSWD_RE, response=passwd))
-
     def send(self, commands):
         return self.shell.send(commands)
 
-class IosModule(AnsibleModule):
+
+class JunosModule(AnsibleModule):
 
     def __init__(self, *args, **kwargs):
-        super(IosModule, self).__init__(*args, **kwargs)
+        super(JunosModule, self).__init__(*args, **kwargs)
         self.connection = None
         self._config = None
 
@@ -76,38 +69,38 @@ class IosModule(AnsibleModule):
         try:
             self.connection = Cli(self)
             self.connection.connect()
-            self.execute('terminal length 0')
-
-            if self.params['authorize']:
-                self.connection.authorize()
-
-        except Exception, exc:
-            self.fail_json(msg=exc.message)
+            self.execute('cli')
+            self.execute('set cli screen-length 0')
+        except ShellErrror, exc:
+            self.fail_json(msg=str(exc))
 
     def configure(self, commands):
         commands = to_list(commands)
-        commands.insert(0, 'configure terminal')
+        commands.insert(0, 'configure')
+        commands.append('commit and-quit')
         responses = self.execute(commands)
         responses.pop(0)
+        responses.pop()
         return responses
 
     def execute(self, commands, **kwargs):
-        return self.connection.send(commands)
+        try:
+            return self.connection.send(commands)
+        except ShellError, exc:
+            self.fail_json(msg=exc.message)
 
     def disconnect(self):
         self.connection.close()
 
     def parse_config(self, cfg):
-        return parse(cfg, indent=1)
+        return parse(cfg, indent=4)
 
     def get_config(self):
-        cmd = 'show running-config'
-        if self.params['include_defaults']:
-            cmd += ' all'
+        cmd = 'show configuration'
         return self.execute(cmd)[0]
 
 def get_module(**kwargs):
-    """Return instance of IosModule
+    """Return instance of JunosModule
     """
 
     argument_spec = NET_COMMON_ARGS.copy()
@@ -116,7 +109,7 @@ def get_module(**kwargs):
     kwargs['argument_spec'] = argument_spec
     kwargs['check_invalid_arguments'] = False
 
-    module = IosModule(**kwargs)
+    module = JunosModule(**kwargs)
 
     # HAS_PARAMIKO is set by module_utils/shell.py
     if not HAS_PARAMIKO:
